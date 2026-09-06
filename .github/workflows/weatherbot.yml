@@ -1,0 +1,38 @@
+name: Weerbot
+
+# 19:45 in Nederland is 17:45 UTC in de zomertijd en 18:45 UTC in de wintertijd.
+# Beide momenten staan ingepland; --guard laat alleen het juiste moment door,
+# dus er verschijnt precies één post per dag, ook na de klokwissel.
+on:
+  schedule:
+    - cron: "45 17 * * *"
+    - cron: "45 18 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Alleen tonen, niet plaatsen"
+        type: boolean
+        default: true
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Weerbericht plaatsen
+        env:
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          REDDIT_USERNAME: ${{ secrets.REDDIT_USERNAME }}
+          REDDIT_PASSWORD: ${{ secrets.REDDIT_PASSWORD }}
+          REDDIT_USER_AGENT: "WeerbotNL/1.0 by ${{ secrets.REDDIT_USERNAME }}"
+          WEATHER_SUBREDDIT: ${{ vars.WEATHER_SUBREDDIT }}
+          WEATHER_STICKY: ${{ vars.WEATHER_STICKY }}
+          WEATHER_FLAIR: ${{ vars.WEATHER_FLAIR }}
+        run: |
+          python weatherbot.py --guard \
+            ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run --force' || '' }}
