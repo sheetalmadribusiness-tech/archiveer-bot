@@ -1,11 +1,14 @@
-# Subreddit Archiver Bot
+# Subreddit Archiver Bot + Weerbot
 
-Archiveert posts (en optioneel reacties) van elk subreddit naar **JSON** en **CSV**.
+Twee bots die dezelfde Reddit-configuratie delen:
+
+- **`archiver.py`** — archiveert posts (en optioneel reacties) van elk subreddit naar **JSON** en **CSV**.
+- **`weatherbot.py`** — plaatst elke dag om **19:45** de weersverwachting voor **morgen** in Nederland.
 
 ## Vereisten
 
-- Python 3.8+
-- Reddit-account
+- Python 3.10+
+- Reddit-account (voor de weerbot: een apart botaccount)
 
 ## Installatie
 
@@ -36,7 +39,9 @@ Bewerk `config.py`:
 | `LIMIT` | aantal posts (`None` = alles) |
 | `INCLUDE_COMMENTS` | `True` om ook reacties op te halen |
 
-## Gebruik
+Voor de weerbot staan de extra instellingen verderop bij [Weerbot](#weerbot).
+
+## Gebruik: archiver
 
 ```bash
 python archiver.py
@@ -55,3 +60,139 @@ output/
 - `config.py` staat in `.gitignore` — commit je credentials nooit.
 - Reddit rate-limit: ~60 req/min. Bij `LIMIT=None` kan dit uren duren.
 - Verwijderde posts verschijnen als `[deleted]` / `[removed]`.
+
+
+---
+
+# Weerbot
+
+Plaatst elke dag om 19:45 (Europe/Amsterdam) een tekstpost met de verwachting
+voor **de volgende dag**: een landelijke samenvatting plus een tabel met elf
+plaatsen verspreid over het land.
+
+Voorbeeld:
+
+> **Verwachting voor dinsdag 7 april** 🌦️
+>
+> Landelijk **6° tot 19°**, lichte regen. Wind uit het zuidwesten (ZW), 3 tot 6 Bft.
+>
+> | Plaats | Weer | Max | Min | Neerslag | Wind |
+> |:---|:---|---:|---:|---:|:---|
+> | Amsterdam | ☁️ bewolkt | 16° | 8° | 1,4 mm (70%) | WZW 5 Bft |
+> | Rotterdam | 🌦️ lichte regen | 16° | 8° | 3,1 mm (85%) | ZW 5 Bft |
+
+Weerdata komt van [Open-Meteo](https://open-meteo.com/): gratis, geen sleutel
+nodig, en gratis te gebruiken voor niet-commercieel gebruik. Met
+`WEATHER_MODEL = "knmi_seamless"` reken je expliciet met het KNMI-model.
+
+## Extra Reddit-instellingen
+
+Archiveren kan read-only; **plaatsen niet**. De weerbot logt in als het
+botaccount zelf, dus je hebt naast client-ID en secret ook de gebruikersnaam en
+het wachtwoord van dat account nodig.
+
+1. Maak een apart Reddit-account aan voor de bot (bijv. `jouwsub-weerbot`).
+2. Maak met **dat account** een app aan via https://www.reddit.com/prefs/apps
+   (type **script**, redirect URI `http://localhost`).
+3. Zet in `config.py`:
+
+| Variabele | Wat invullen |
+|---|---|
+| `REDDIT_USERNAME` | gebruikersnaam van het botaccount |
+| `REDDIT_PASSWORD` | wachtwoord van het botaccount |
+
+> Heeft het botaccount 2FA? Gebruik dan `wachtwoord:123456` als wachtwoord —
+> die combinatie is maar korte tijd geldig, dus voor een bot die dag in dag uit
+> draait kun je 2FA beter uit laten staan op dat account.
+
+## Weerbot-instellingen
+
+| Variabele | Standaard | Betekenis |
+|---|---|---|
+| `WEATHER_SUBREDDIT` | — | subreddit zonder `r/` |
+| `WEATHER_POST_TIME` | `"19:45"` | tijdstip, altijd Europe/Amsterdam |
+| `WEATHER_TITLE_TEMPLATE` | zie `config.example.py` | velden: `{emoji}` `{date}` `{weekday}` `{day}` `{month}` `{year}` `{summary}` `{tmin}` `{tmax}` |
+| `WEATHER_CITIES` | 11 plaatsen | lijst van `("Naam", breedtegraad, lengtegraad)` |
+| `WEATHER_REFERENCE_CITY` | `"Utrecht"` | plaats voor zonsopgang/-ondergang |
+| `WEATHER_FLAIR` | `None` | naam van een bestaande post-flair |
+| `WEATHER_STICKY` | `False` | post vastzetten (bot moet moderator zijn) |
+| `WEATHER_UNSTICKY_PREVIOUS` | `True` | het bericht van gisteren eerst losmaken |
+| `WEATHER_MODEL` | `None` | bijv. `"knmi_seamless"` |
+| `WEATHER_FOOTER` | `None` | eigen ondertekst onder de tabel |
+
+Elke instelling kan ook als omgevingsvariabele — handig voor GitHub Actions of
+systemd, waar je geen `config.py` wilt neerzetten. Steden zien er als
+omgevingsvariabele zo uit: `WEATHER_CITIES="Amsterdam:52.37:4.89,Groningen:53.22:6.57"`.
+
+## Gebruik: weerbot
+
+```bash
+python weatherbot.py --dry-run      # laat de post zien, plaatst niets
+python weatherbot.py                # plaats nu het bericht voor morgen
+python weatherbot.py --loop         # blijf draaien, plaats elke dag om 19:45
+python weatherbot.py --date 2026-04-09 --dry-run   # andere dag bekijken
+```
+
+Overige opties: `--time HH:MM` (ander tijdstip voor `--loop`), `--force`
+(plaats ook als er vandaag al een bericht stond), `--guard` (zie hieronder).
+
+Een geplaatst bericht wordt onthouden in `weather_state.json`, zodat een
+herstart of een dubbele cron-run niet twee keer hetzelfde plaatst. Dat bestand
+staat in `.gitignore`.
+
+## Bot activeren op je subreddit
+
+1. **Testen** — draai `python weatherbot.py --dry-run` en kijk of de tekst klopt.
+2. **Bot uitnodigen** — als moderator: *Mod Tools → Moderators → Invite moderator*.
+   Voor alleen plaatsen zijn geen rechten nodig; voor `WEATHER_STICKY = True`
+   heeft de bot **Posts** (`posts`) nodig. Accepteer de uitnodiging in de inbox
+   van het botaccount.
+3. **Eerste post handmatig** — draai `python weatherbot.py` en controleer het
+   resultaat in de sub.
+4. **Inplannen** — kies één van de manieren hieronder.
+5. Voeg het botaccount toe aan de *approved submitters* als je sub daarop
+   filtert, en denk aan een eventuele karma- of accountleeftijd-drempel in
+   AutoModerator: een gloednieuw botaccount wordt anders stilzwijgend
+   tegengehouden.
+
+## Inplannen
+
+**Eigen server (het meest punctueel)** — met systemd, zie het meegeleverde
+`weerbot.service`:
+
+```bash
+sudo cp weerbot.service /etc/systemd/system/
+sudo systemctl enable --now weerbot
+journalctl -u weerbot -f
+```
+
+Of met cron, op een machine die zelf op Nederlandse tijd staat:
+
+```cron
+45 19 * * * cd /opt/archiveer-bot && /opt/archiveer-bot/.venv/bin/python weatherbot.py >> weerbot.log 2>&1
+```
+
+**GitHub Actions (geen server nodig)** — `.github/workflows/weatherbot.yml`
+staat klaar. Zet in de repo-instellingen:
+
+- *Secrets*: `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USERNAME`, `REDDIT_PASSWORD`
+- *Variables*: `WEATHER_SUBREDDIT`, en eventueel `WEATHER_STICKY` / `WEATHER_FLAIR`
+
+De workflow draait op 17:45 én 18:45 UTC — dat zijn de zomer- en wintervariant
+van 19:45 Nederlandse tijd. `--guard` laat alleen het juiste moment door, dus er
+verschijnt één post per dag, ook na de klokwissel. Let op: Actions-cron kan
+enkele minuten later starten dan gepland en `weather_state.json` blijft daar
+niet bewaard; op een eigen server is de tijd nauwkeuriger.
+
+Met *Run workflow* in het Actions-tabblad test je de bot handmatig (standaard
+als dry-run).
+
+## Tests
+
+```bash
+python -m unittest -v
+```
+
+De tests draaien zonder netwerk: ze voeden een opgeslagen Open-Meteo-antwoord
+aan de opmaakcode en controleren de omrekening naar Beaufort en windrichting,
+de tabel, de zomertijdlogica en het inlezen van de instellingen.

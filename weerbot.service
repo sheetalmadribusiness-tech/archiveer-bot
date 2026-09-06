@@ -1,0 +1,18 @@
+# Voorbeeld-unit voor een eigen server. Plaats in /etc/systemd/system/,
+# pas paden en gebruiker aan, en start met:
+#   sudo systemctl enable --now weerbot
+[Unit]
+Description=Reddit weerbot Nederland
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=weerbot
+WorkingDirectory=/opt/archiveer-bot
+ExecStart=/opt/archiveer-bot/.venv/bin/python weatherbot.py --loop
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target
