@@ -151,6 +151,61 @@ def make_reddit(settings):
     )
 
 
+def check_setup(settings, reddit=None):
+    """Controleer de inloggegevens en rechten zonder iets te plaatsen.
+
+    Meldt bij welk account we inloggen, of de subreddit bereikbaar is en of
+    de bot moderator is met genoeg rechten om posts vast te zetten.
+    """
+    check_credentials(settings)
+    reddit = reddit or make_reddit(settings)
+    subreddit_name = settings["WEATHER_SUBREDDIT"].lstrip("/").removeprefix("r/")
+
+    try:
+        me = reddit.user.me()
+    except Exception as exc:
+        print(f"Inloggen mislukt: {exc}")
+        print("Controleer client-ID, secret, gebruikersnaam en wachtwoord. "
+              "Staat 2FA aan op het botaccount, zet dat dan uit.")
+        return 1
+    print(f"Ingelogd als u/{me}")
+
+    try:
+        subreddit = reddit.subreddit(subreddit_name)
+        print(f"Subreddit r/{subreddit.display_name} gevonden.")
+    except Exception as exc:
+        print(f"Subreddit r/{subreddit_name} niet bereikbaar: {exc}")
+        return 1
+
+    permissions = moderator_permissions(subreddit, str(me))
+    if permissions is None:
+        print(f"u/{me} is geen moderator van r/{subreddit_name}. "
+              "Plaatsen kan meestal wel; vastzetten niet.")
+    else:
+        print(f"Moderatorrechten: {', '.join(permissions) or 'geen'}")
+
+    if settings["WEATHER_STICKY"]:
+        allowed = permissions is not None and (
+            "all" in permissions or "posts" in permissions)
+        print("Vastzetten kan." if allowed else
+              "Let op: WEATHER_STICKY staat aan, maar het recht 'posts' ontbreekt.")
+
+    print("\nAlles ingesteld. Test de tekst met --dry-run en plaats daarna "
+          "eenmalig handmatig met: python weatherbot.py")
+    return 0
+
+
+def moderator_permissions(subreddit, username):
+    """Rechten van `username` in deze sub, of None als die geen moderator is."""
+    try:
+        for moderator in subreddit.moderator():
+            if str(moderator).lower() == username.lower():
+                return list(moderator.mod_permissions)
+    except Exception as exc:
+        print(f"Moderatorlijst opvragen mislukt: {exc}")
+    return None
+
+
 def submit_post(settings, title, body, state):
     reddit = make_reddit(settings)
     subreddit_name = settings["WEATHER_SUBREDDIT"].lstrip("/").removeprefix("r/")
@@ -291,6 +346,8 @@ def main(argv=None):
                         help="speling in minuten voor --guard (standaard 20)")
     parser.add_argument("--force", action="store_true",
                         help="plaats ook als er vandaag al een bericht stond")
+    parser.add_argument("--check", action="store_true",
+                        help="controleer inloggegevens en rechten, plaats niets")
     parser.add_argument("--model", metavar="NAAM",
                         help=f"weermodel (standaard {weather.DEFAULT_MODEL}; "
                              "'best_match' voor de standaardmix van Open-Meteo)")
@@ -300,6 +357,9 @@ def main(argv=None):
     post_time = args.post_time or settings["WEATHER_POST_TIME"]
     if args.model:
         settings["WEATHER_MODEL"] = args.model
+
+    if args.check:
+        return check_setup(settings)
 
     if args.loop:
         run_loop(settings, post_time, dry_run=args.dry_run)

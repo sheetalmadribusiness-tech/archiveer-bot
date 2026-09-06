@@ -104,25 +104,68 @@ Wil je toch de standaardmix van Open-Meteo (die per locatie het best passende
 model kiest), zet dan `WEATHER_MODEL = "best_match"`, of draai eenmalig
 `python weatherbot.py --model best_match --dry-run` om de twee te vergelijken.
 
-## Extra Reddit-instellingen
+## Inloggegevens aanmaken
 
 Archiveren kan read-only; **plaatsen niet**. De weerbot logt in als het
-botaccount zelf, dus je hebt naast client-ID en secret ook de gebruikersnaam en
-het wachtwoord van dat account nodig.
+botaccount zelf, dus je hebt vier gegevens nodig: client-ID, secret,
+gebruikersnaam en wachtwoord.
 
-1. Maak een apart Reddit-account aan voor de bot (bijv. `jouwsub-weerbot`).
-2. Maak met **dat account** een app aan via https://www.reddit.com/prefs/apps
-   (type **script**, redirect URI `http://localhost`).
-3. Zet in `config.py`:
+**1. Maak een apart account voor de bot.** Bijvoorbeeld `jouwsub-weerbot`. Doe
+dit niet met je eigen moderatoraccount: als het wachtwoord ooit uitlekt, raak
+je anders je eigen account kwijt. Zet **geen** 2FA aan op het botaccount —
+Reddit verwacht dan `wachtwoord:123456` als wachtwoord, en die code verloopt
+binnen een halve minuut, dus een bot die dagelijks draait loopt daarop vast.
+
+**2. Maak een app aan.** Log in als het botaccount, ga naar
+https://www.reddit.com/prefs/apps en klik onderaan **"create another app..."**:
+
+| Veld | Wat invullen |
+|---|---|
+| name | `weerbot` |
+| type | **script** ← belangrijk; andere types kunnen niet met wachtwoord inloggen |
+| description | mag leeg |
+| about url | mag leeg |
+| redirect uri | `http://localhost` |
+
+Klik **create app**. Je krijgt dan:
+
+- **client-ID**: de reeks van 14 tekens direct onder de naam van de app,
+  links bovenin het grijze blok (er staat *"personal use script"* boven).
+- **secret**: de langere reeks achter het label **secret**.
+
+**3. Zet de gegevens neer.** Kies één van beide plekken — nooit allebei, en zet
+ze nooit in een bestand dat je commit:
+
+*Draai je hem op je eigen machine?* Vul `config.py` in (die staat in
+`.gitignore`, dus hij komt nooit in git terecht):
 
 | Variabele | Wat invullen |
 |---|---|
+| `REDDIT_CLIENT_ID` | de 14 tekens onder de app-naam |
+| `REDDIT_CLIENT_SECRET` | de reeks achter *secret* |
 | `REDDIT_USERNAME` | gebruikersnaam van het botaccount |
 | `REDDIT_PASSWORD` | wachtwoord van het botaccount |
 
-> Heeft het botaccount 2FA? Gebruik dan `wachtwoord:123456` als wachtwoord —
-> die combinatie is maar korte tijd geldig, dus voor een bot die dag in dag uit
-> draait kun je 2FA beter uit laten staan op dat account.
+*Draai je hem via GitHub Actions?* Zet ze als **repository secrets** onder
+*Settings → Secrets and variables → Actions → New repository secret*, met exact
+deze namen: `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USERNAME`,
+`REDDIT_PASSWORD`. GitHub laat ze daarna nooit meer zien en filtert ze uit de
+logs. De subreddit zelf is geen geheim: die zet je als *variable*
+`WEATHER_SUBREDDIT` op hetzelfde scherm.
+
+**4. Controleer of het werkt** — dit plaatst nog niets:
+
+```bash
+python weatherbot.py --check
+```
+
+Je ziet dan bij welk account je inlogt, of de subreddit bereikbaar is en welke
+moderatorrechten de bot heeft.
+
+> **Deel deze vier gegevens met niemand** — ook niet in een chat, een issue of
+> een screenshot. Samen geven ze volledige controle over het botaccount. Is er
+> iets uitgelekt? Klik op *edit* bij de app voor een nieuw secret en wijzig het
+> wachtwoord van het botaccount.
 
 ## Weerbot-instellingen
 
@@ -146,6 +189,7 @@ omgevingsvariabele zo uit: `WEATHER_CITIES="Amsterdam:52.37:4.89,Groningen:53.22
 ## Gebruik: weerbot
 
 ```bash
+python weatherbot.py --check        # controleer inloggegevens en rechten
 python weatherbot.py --dry-run      # laat de post zien, plaatst niets
 python weatherbot.py                # plaats nu het bericht voor morgen
 python weatherbot.py --loop         # blijf draaien, plaats elke dag om 19:45
@@ -162,7 +206,8 @@ staat in `.gitignore`.
 
 ## Bot activeren op je subreddit
 
-1. **Testen** — draai `python weatherbot.py --dry-run` en kijk of de tekst klopt.
+1. **Testen** — draai `python weatherbot.py --check` (inloggegevens en rechten)
+   en `python weatherbot.py --dry-run` (klopt de tekst?).
 2. **Bot uitnodigen** — als moderator: *Mod Tools → Moderators → Invite moderator*.
    Voor alleen plaatsen zijn geen rechten nodig; voor `WEATHER_STICKY = True`
    heeft de bot **Posts** (`posts`) nodig. Accepteer de uitnodiging in de inbox

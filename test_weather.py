@@ -189,6 +189,82 @@ class TestFetching(unittest.TestCase):
         self.assertEqual(weather.probabilities([payload], CITIES[:1], DAY), [None])
 
 
+class FakeModerator(str):
+    """Gedraagt zich als een moderatornaam met rechten eraan."""
+    def __new__(cls, name, permissions):
+        self = super().__new__(cls, name)
+        self.mod_permissions = permissions
+        return self
+
+
+class FakeReddit:
+    def __init__(self, me="weerbot", moderators=(), fail_login=False):
+        self.user = type("U", (), {"me": lambda _: (_ for _ in ()).throw(
+            RuntimeError("401 ongeldige inloggegevens")) if fail_login else me})()
+        self._moderators = moderators
+
+    def subreddit(self, name):
+        moderators = self._moderators
+        return type("S", (), {
+            "display_name": name,
+            "moderator": lambda _: list(moderators),
+        })()
+
+
+class TestCheckSetup(unittest.TestCase):
+    """--check, met een nagebootste Reddit-verbinding."""
+
+    def settings(self, **overrides):
+        base = dict(weatherbot.DEFAULTS)
+        base.update({
+            "WEATHER_SUBREDDIT": "testsub",
+            "REDDIT_CLIENT_ID": "x", "REDDIT_CLIENT_SECRET": "x",
+            "REDDIT_USERNAME": "weerbot", "REDDIT_PASSWORD": "x",
+        })
+        base.update(overrides)
+        return base
+
+    def check(self, settings, reddit):
+        import contextlib, io
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = weatherbot.check_setup(settings, reddit=reddit)
+        return code, out.getvalue()
+
+    def test_reports_account_and_subreddit(self):
+        code, out = self.check(self.settings(), FakeReddit())
+        self.assertEqual(code, 0)
+        self.assertIn("Ingelogd als u/weerbot", out)
+        self.assertIn("Subreddit r/testsub gevonden", out)
+
+    def test_bad_credentials_fail_clearly(self):
+        code, out = self.check(self.settings(), FakeReddit(fail_login=True))
+        self.assertEqual(code, 1)
+        self.assertIn("Inloggen mislukt", out)
+        self.assertIn("2FA", out)
+
+    def test_warns_when_sticky_lacks_the_posts_permission(self):
+        reddit = FakeReddit(moderators=[FakeModerator("weerbot", ["flair"])])
+        _, out = self.check(self.settings(WEATHER_STICKY=True), reddit)
+        self.assertIn("het recht 'posts' ontbreekt", out)
+
+    def test_sticky_allowed_with_posts_permission(self):
+        reddit = FakeReddit(moderators=[FakeModerator("weerbot", ["posts"])])
+        _, out = self.check(self.settings(WEATHER_STICKY=True), reddit)
+        self.assertIn("Vastzetten kan.", out)
+        self.assertIn("Moderatorrechten: posts", out)
+
+    def test_notices_when_the_bot_is_not_a_moderator(self):
+        reddit = FakeReddit(moderators=[FakeModerator("iemandanders", ["all"])])
+        _, out = self.check(self.settings(), reddit)
+        self.assertIn("is geen moderator", out)
+
+    def test_missing_credentials_stop_before_any_call(self):
+        with self.assertRaises(SystemExit):
+            weatherbot.check_setup(self.settings(REDDIT_PASSWORD=None),
+                                   reddit=FakeReddit())
+
+
 class TestScheduling(unittest.TestCase):
     tz = ZoneInfo("Europe/Amsterdam")
 
