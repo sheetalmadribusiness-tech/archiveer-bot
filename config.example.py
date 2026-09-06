@@ -33,5 +33,5 @@ WEATHER_REFERENCE_CITY   = "Utrecht"  # plaats voor zonop-/ondergang
 WEATHER_FLAIR            = None       # bijv. "Weer"; moet bestaan in de sub
 WEATHER_STICKY           = False      # post vastzetten (bot moet moderator zijn)
 WEATHER_UNSTICKY_PREVIOUS = True      # gisteren losmaken voordat vandaag vastgezet wordt
-WEATHER_MODEL            = None       # bijv. "knmi_seamless" voor het KNMI-model
+WEATHER_MODEL            = None       # None = KNMI (Harmonie); "best_match" = mix van Open-Meteo
 WEATHER_FOOTER           = None       # eigen ondertekst onder de tabel

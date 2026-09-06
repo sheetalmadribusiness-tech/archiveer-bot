@@ -95,6 +95,9 @@ class TestPost(unittest.TestCase):
         self.assertIn("9° tot 17°", title)
         self.assertIn("half bewolkt", title)
 
+    def test_footer_credits_knmi(self):
+        self.assertIn("KNMI-model", weather.build_body(self.forecasts))
+
     def test_body_has_a_row_per_city(self):
         body = weather.build_body(self.forecasts)
         for name, _, _ in CITIES:
@@ -119,6 +122,71 @@ class TestPost(unittest.TestCase):
         payload = [location(degrees=350.0), location(degrees=10.0)]
         forecasts = weather.parse_forecast(payload, CITIES[:2], DAY)
         self.assertEqual(weather.summarize(forecasts)["direction"], "N")
+
+
+class TestFetching(unittest.TestCase):
+    """fetch_forecast met een nagebootste API, dus zonder netwerk."""
+
+    def setUp(self):
+        self.requests = []
+
+    def fake_request(self, responses):
+        def _request(cities, day, variables, model, timeout, api_url):
+            self.requests.append({"variables": variables, "model": model})
+            return responses[len(self.requests) - 1]
+        return _request
+
+    def run_fetch(self, responses, **kwargs):
+        original = weather._request
+        weather._request = self.fake_request(responses)
+        try:
+            return weather.fetch_forecast(cities=CITIES, day=DAY, **kwargs)
+        finally:
+            weather._request = original
+
+    def test_knmi_is_the_default_model(self):
+        self.run_fetch([PAYLOAD])
+        self.assertEqual(self.requests[0]["model"], "knmi_seamless")
+        self.assertEqual(len(self.requests), 1, "geen tweede aanvraag nodig")
+
+    def test_probability_is_fetched_separately_when_knmi_omits_it(self):
+        without = [location(chance=None) for _ in CITIES]
+        extra = [location(chance=65) for _ in CITIES]
+        forecasts = self.run_fetch([without, extra])
+
+        self.assertEqual(len(self.requests), 2)
+        self.assertEqual(self.requests[1]["variables"], ["precipitation_probability_max"])
+        self.assertIsNone(self.requests[1]["model"], "terugval gebruikt de standaardmix")
+        self.assertTrue(all(f.precipitation_chance == 65 for f in forecasts))
+        # De rest van de waarden blijft van het KNMI-model.
+        self.assertEqual(forecasts[0].temp_max, 17.4)
+
+    def test_post_still_works_when_the_fallback_fails(self):
+        def failing(cities, day, variables, model, timeout, api_url):
+            self.requests.append({"variables": variables, "model": model})
+            if len(self.requests) == 1:
+                return [location(chance=None) for _ in CITIES]
+            raise weather.WeatherError("tweede aanvraag mislukt")
+
+        original = weather._request
+        weather._request = failing
+        try:
+            forecasts = weather.fetch_forecast(cities=CITIES, day=DAY)
+        finally:
+            weather._request = original
+
+        self.assertTrue(all(f.precipitation_chance is None for f in forecasts))
+        self.assertIn("| 1,4 mm |", weather.build_body(
+            weather.parse_forecast([location(chance=None, rain=1.4)], CITIES[:1], DAY)))
+
+    def test_no_fallback_without_a_pinned_model(self):
+        self.run_fetch([[location(chance=None) for _ in CITIES]], model=None)
+        self.assertEqual(len(self.requests), 1)
+
+    def test_probabilities_tolerate_a_missing_column(self):
+        payload = location()
+        del payload["daily"]["precipitation_probability_max"]
+        self.assertEqual(weather.probabilities([payload], CITIES[:1], DAY), [None])
 
 
 class TestScheduling(unittest.TestCase):

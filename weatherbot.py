@@ -25,7 +25,7 @@ DEFAULTS = {
     "WEATHER_FLAIR": None,
     "WEATHER_STICKY": False,
     "WEATHER_UNSTICKY_PREVIOUS": True,
-    "WEATHER_MODEL": None,
+    "WEATHER_MODEL": weather.DEFAULT_MODEL,
     "WEATHER_FOOTER": None,
 }
 
@@ -291,10 +291,15 @@ def main(argv=None):
                         help="speling in minuten voor --guard (standaard 20)")
     parser.add_argument("--force", action="store_true",
                         help="plaats ook als er vandaag al een bericht stond")
+    parser.add_argument("--model", metavar="NAAM",
+                        help=f"weermodel (standaard {weather.DEFAULT_MODEL}; "
+                             "'best_match' voor de standaardmix van Open-Meteo)")
     args = parser.parse_args(argv)
 
     settings = load_settings()
     post_time = args.post_time or settings["WEATHER_POST_TIME"]
+    if args.model:
+        settings["WEATHER_MODEL"] = args.model
 
     if args.loop:
         run_loop(settings, post_time, dry_run=args.dry_run)

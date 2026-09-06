@@ -8,6 +8,13 @@ from datetime import date, timedelta
 
 API_URL = "https://api.open-meteo.com/v1/forecast"
 
+# Het KNMI-model (Harmonie AROME) via Open-Meteo. Harmonie is het model dat het
+# KNMI zelf voor Nederland draait: 2 km resolutie, elk uur ververst, ruim 48 uur
+# vooruit -- dus de verwachting voor morgen komt volledig uit Harmonie.
+# "seamless" betekent dat Open-Meteo daarna doorloopt op ECMWF, wat we voor een
+# dagverwachting niet raken.
+DEFAULT_MODEL = "knmi_seamless"
+
 # Standaardsteden: spreiding over alle windstreken/provincies.
 DEFAULT_CITIES = [
     ("Amsterdam", 52.374, 4.890),
@@ -159,21 +166,12 @@ def _clock(timestamp: str | None) -> str | None:
     return timestamp.split("T", 1)[1][:5]
 
 
-def fetch_forecast(cities=None, day=None, timeout=30, model=None, api_url=API_URL):
-    """Haal de dagverwachting voor `day` op voor alle steden.
-
-    Eén request voor alle coordinaten samen, zodat we netjes binnen de
-    fair-use limiet van Open-Meteo blijven.
-    """
-    cities = list(cities or DEFAULT_CITIES)
-    if not cities:
-        raise WeatherError("Er zijn geen steden geconfigureerd.")
-    day = day or date.today() + timedelta(days=1)
-
+def _request(cities, day, variables, model, timeout, api_url):
+    """Eén aanvraag voor alle coordinaten samen, netjes binnen de fair-use limiet."""
     params = {
         "latitude": ",".join(str(lat) for _, lat, _ in cities),
         "longitude": ",".join(str(lon) for _, _, lon in cities),
-        "daily": ",".join(DAILY_VARIABLES),
+        "daily": ",".join(variables),
         "timezone": "Europe/Amsterdam",
         "start_date": day.isoformat(),
         "end_date": day.isoformat(),
@@ -184,11 +182,59 @@ def fetch_forecast(cities=None, day=None, timeout=30, model=None, api_url=API_UR
     url = f"{api_url}?{urllib.parse.urlencode(params)}"
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response:
-            payload = json.load(response)
+            return json.load(response)
     except Exception as exc:  # netwerkfout, time-out, ongeldige JSON
         raise WeatherError(f"Ophalen van de verwachting mislukt: {exc}") from exc
 
-    return parse_forecast(payload, cities, day)
+
+def fetch_forecast(cities=None, day=None, timeout=30, model=DEFAULT_MODEL,
+                   api_url=API_URL, probability_fallback=True):
+    """Haal de dagverwachting voor `day` op voor alle steden.
+
+    Standaard rekent dit met het KNMI-model. Neerslagkans komt uit een
+    ensemble en zit niet in een enkel deterministisch model; ontbreekt die,
+    dan vullen we alleen dat ene getal aan uit de standaardmix van
+    Open-Meteo. Alle andere waarden blijven van het KNMI.
+    """
+    cities = list(cities or DEFAULT_CITIES)
+    if not cities:
+        raise WeatherError("Er zijn geen steden geconfigureerd.")
+    day = day or date.today() + timedelta(days=1)
+
+    payload = _request(cities, day, DAILY_VARIABLES, model, timeout, api_url)
+    forecasts = parse_forecast(payload, cities, day)
+
+    needs_probability = all(f.precipitation_chance is None for f in forecasts)
+    if model and probability_fallback and needs_probability:
+        try:
+            extra = _request(cities, day, ["precipitation_probability_max"],
+                             None, timeout, api_url)
+            for forecast, chance in zip(forecasts, probabilities(extra, cities, day)):
+                forecast.precipitation_chance = chance
+        except WeatherError:
+            # Zonder percentages is het bericht nog steeds bruikbaar.
+            pass
+
+    return forecasts
+
+
+def probabilities(payload, cities, day):
+    """Alleen de neerslagkansen uit een antwoord halen, in dezelfde volgorde."""
+    locations = payload if isinstance(payload, list) else [payload]
+    if len(locations) != len(cities):
+        raise WeatherError("Onverwacht antwoord bij het ophalen van de neerslagkans.")
+
+    chances = []
+    for location in locations:
+        daily = location.get("daily") or {}
+        column = daily.get("precipitation_probability_max") or []
+        try:
+            index = daily["time"].index(day.isoformat())
+            value = column[index]
+        except (KeyError, ValueError, IndexError):
+            value = None
+        chances.append(None if value is None else int(value))
+    return chances
 
 
 def parse_forecast(payload, cities, day):
@@ -347,9 +393,9 @@ def build_body(forecasts, reference_city="Utrecht", footer=None):
 
 
 DEFAULT_FOOTER = (
-    "^(Bron: [Open-Meteo](https://open-meteo.com/) · windkracht in Beaufort, "
-    "neerslag in mm per etmaal. Ik ben een bot; vragen of fouten? Stuur een "
-    "bericht naar de moderators.)"
+    "^(Bron: KNMI-model \\(Harmonie\\) via [Open-Meteo](https://open-meteo.com/) · "
+    "windkracht in Beaufort, neerslag in mm per etmaal. Ik ben een bot; vragen "
+    "of fouten? Stuur een bericht naar de moderators.)"
 )
 
 

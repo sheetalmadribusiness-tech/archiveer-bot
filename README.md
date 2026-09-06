@@ -81,9 +81,28 @@ Voorbeeld:
 > | Amsterdam | ☁️ bewolkt | 16° | 8° | 1,4 mm (70%) | WZW 5 Bft |
 > | Rotterdam | 🌦️ lichte regen | 16° | 8° | 3,1 mm (85%) | ZW 5 Bft |
 
-Weerdata komt van [Open-Meteo](https://open-meteo.com/): gratis, geen sleutel
-nodig, en gratis te gebruiken voor niet-commercieel gebruik. Met
-`WEATHER_MODEL = "knmi_seamless"` reken je expliciet met het KNMI-model.
+## Waar de data vandaan komt
+
+De bot rekent met het **KNMI-model**: Harmonie AROME, het model dat het KNMI
+zelf voor Nederland draait — 2 km resolutie, elk uur ververst en ruim 48 uur
+vooruit, dus de verwachting voor morgen komt volledig uit Harmonie.
+
+De data wordt opgehaald via [Open-Meteo](https://open-meteo.com/), dat het
+KNMI-model kant-en-klaar aanbiedt (`knmi_seamless`) zonder API-sleutel en
+gratis voor niet-commercieel gebruik. Het alternatief is het
+[KNMI Open Data Platform](https://dataplatform.knmi.nl/), maar dat levert de
+ruwe Harmonie-uitvoer als GRIB/netCDF-bestanden van honderden megabytes per
+run, die je zelf moet uitpakken en op coordinaten moet uitlezen — voor een
+dagelijks weerberichtje is dat veel zwaarder dan nodig.
+
+> **Eén uitzondering:** de *neerslagkans* volgt uit een ensemble en zit niet in
+> een enkel deterministisch model. Levert het KNMI-model die kolom niet, dan
+> vult de bot alleen dat ene percentage aan uit de standaardmix van Open-Meteo.
+> Temperatuur, weertype, wind en neerslag blijven altijd van het KNMI.
+
+Wil je toch de standaardmix van Open-Meteo (die per locatie het best passende
+model kiest), zet dan `WEATHER_MODEL = "best_match"`, of draai eenmalig
+`python weatherbot.py --model best_match --dry-run` om de twee te vergelijken.
 
 ## Extra Reddit-instellingen
 
@@ -117,7 +136,7 @@ het wachtwoord van dat account nodig.
 | `WEATHER_FLAIR` | `None` | naam van een bestaande post-flair |
 | `WEATHER_STICKY` | `False` | post vastzetten (bot moet moderator zijn) |
 | `WEATHER_UNSTICKY_PREVIOUS` | `True` | het bericht van gisteren eerst losmaken |
-| `WEATHER_MODEL` | `None` | bijv. `"knmi_seamless"` |
+| `WEATHER_MODEL` | `"knmi_seamless"` | weermodel; `"best_match"` voor de standaardmix van Open-Meteo |
 | `WEATHER_FOOTER` | `None` | eigen ondertekst onder de tabel |
 
 Elke instelling kan ook als omgevingsvariabele — handig voor GitHub Actions of
@@ -134,7 +153,8 @@ python weatherbot.py --date 2026-04-09 --dry-run   # andere dag bekijken
 ```
 
 Overige opties: `--time HH:MM` (ander tijdstip voor `--loop`), `--force`
-(plaats ook als er vandaag al een bericht stond), `--guard` (zie hieronder).
+(plaats ook als er vandaag al een bericht stond), `--model NAAM` (ander
+weermodel), `--guard` (zie hieronder).
 
 Een geplaatst bericht wordt onthouden in `weather_state.json`, zodat een
 herstart of een dubbele cron-run niet twee keer hetzelfde plaatst. Dat bestand
@@ -195,4 +215,6 @@ python -m unittest -v
 
 De tests draaien zonder netwerk: ze voeden een opgeslagen Open-Meteo-antwoord
 aan de opmaakcode en controleren de omrekening naar Beaufort en windrichting,
-de tabel, de zomertijdlogica en het inlezen van de instellingen.
+de tabel, de zomertijdlogica, het inlezen van de instellingen en dat het
+KNMI-model daadwerkelijk wordt opgevraagd (inclusief de terugval voor de
+neerslagkans).
